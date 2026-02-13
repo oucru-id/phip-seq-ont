@@ -1,0 +1,1 @@
+This pipeline provides an automated end-to-end workflow for PhIP-Seq analysis from ONT sequencing data, from alignment, statistical modeling, virus scoring, and IEDB annotation. It features integrated support for 3D protein visualization and interactive Streamlit dashboards to facilitate the exploration of antibody-peptide binding. (Full documentation soon)
