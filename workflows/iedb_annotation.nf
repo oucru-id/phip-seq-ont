@@ -1,12 +1,5 @@
 nextflow.enable.dsl = 2
 
-params.iedb_database = "$baseDir/data/VIR3-example/epitope_full_v3.tsv"
-params.epitope_length_min = 4    
-params.epitope_length_max = 35
-params.zscore_threshold = 3.5
-params.max_workers = 4  
-params.chunk_size = 100  
-
 process EXTRACT_SAMPLE_NAMES {
     input:
     path(zscore_file)
@@ -36,7 +29,7 @@ process IEDB_ANNOTATION {
 
     publishDir "${params.results}/iedb_annotation", mode: 'copy'
     cpus params.max_workers
-    memory '7 GB'
+    memory '9 GB'
     
     input:
     tuple path(zscore_file), path(peptide_table), path(iedb_db), path(split_hits_file), val(sample_name)
@@ -179,51 +172,30 @@ process IEDB_ANNOTATION {
                 best_col_idx = int(col_key.split('_')[1])
     
     epitope_set = set()
+    epitope_to_organism = {}
     total_processed = 0
     
     if best_col_idx is not None:
-        print(f"Extracting epitopes from column position {best_col_idx}...")
+        print(f"Extracting epitopes and organism mapping from column position {best_col_idx}")
         
         try:
-            chunk_size = 5000            
+            chunk_size = 10000            
             chunk_reader = pd.read_csv('${iedb_db}', sep='\\t', chunksize=chunk_size,
                                      header=None, low_memory=False)
             
+            organism_col_idx = 13
+            valid_chars = set('ACDEFGHIKLMNPQRSTVWY')
+            invalid_patterns = ['http', 'linear peptide', 'object type', 'www', 'iedb']
+            min_len = ${params.epitope_length_min}
+            max_len = ${params.epitope_length_max}
+
             for chunk_num, chunk_df in enumerate(chunk_reader):
                 total_processed += len(chunk_df)
                 
                 if best_col_idx >= len(chunk_df.columns):
                     continue
                 
-                values = chunk_df.iloc[:, best_col_idx].dropna().astype(str)
-                
-                for val in values:
-                    val_clean = str(val).upper().strip()
-                    
-                    if (${params.epitope_length_min} <= len(val_clean) <= ${params.epitope_length_max} and
-                        len(re.findall(r'[ACDEFGHIKLMNPQRSTVWY]', val_clean)) >= len(val_clean) * 0.8 and
-                        not any(pattern in val_clean.lower() for pattern in 
-                               ['http', 'linear peptide', 'object type', 'www', 'iedb'])):
-                        epitope_set.add(val_clean)
-
-        except Exception as e:
-            print(f"ERROR reading IEDB database: {e}")
-    
-    epitope_list = list(epitope_set)
-    
-    epitope_to_organism = {}
-    if best_col_idx is not None:
-        try:
-            chunk_reader = pd.read_csv('${iedb_db}', sep='\\t', chunksize=5000,
-                                     header=None, low_memory=False)
-            
-            organism_col_idx = 13
-            
-            for chunk_num, chunk_df in enumerate(chunk_reader):
-                if best_col_idx >= len(chunk_df.columns):
-                    continue
-                
-                epitope_values = chunk_df.iloc[:, best_col_idx].dropna().astype(str)
+                epitope_values = chunk_df.iloc[:, best_col_idx].astype(str)
                 
                 if organism_col_idx < len(chunk_df.columns):
                     organism_values = chunk_df.iloc[:, organism_col_idx].fillna('Unknown').astype(str)
@@ -231,16 +203,24 @@ process IEDB_ANNOTATION {
                     organism_values = pd.Series(['Unknown'] * len(epitope_values))
                 
                 for epitope_val, org_val in zip(epitope_values, organism_values):
-                    epitope_clean = str(epitope_val).upper().strip()
-                    if (${params.epitope_length_min} <= len(epitope_clean) <= ${params.epitope_length_max} and
-                        len(re.findall(r'[ACDEFGHIKLMNPQRSTVWY]', epitope_clean)) >= len(epitope_clean) * 0.8 and
-                        not any(pattern in epitope_clean.lower() for pattern in 
-                               ['http', 'linear peptide', 'object type', 'www', 'iedb'])):
-                        if epitope_clean not in epitope_to_organism:
-                            epitope_to_organism[epitope_clean] = str(org_val).strip()
+                    val = epitope_val
+                    if val == 'nan': continue
+                    val_clean = val.upper().strip()
+                    v_len = len(val_clean)
                     
+                    if min_len <= v_len <= max_len:
+                        valid_count = sum(1 for c in val_clean if c in valid_chars)
+                        if valid_count >= v_len * 0.8:
+                            val_lower = val_clean.lower()
+                            if not any(pattern in val_lower for pattern in invalid_patterns):
+                                epitope_set.add(val_clean)
+                                if val_clean not in epitope_to_organism:
+                                    epitope_to_organism[val_clean] = str(org_val).strip()
+
         except Exception as e:
-            print(f"Warning: Could not extract organism info: {e}")
+            print(f"ERROR reading IEDB database: {e}")
+    
+    epitope_list = list(epitope_set)
     
     def extract_sequence_function(row):
         if 'sequence' in row:
@@ -253,72 +233,107 @@ process IEDB_ANNOTATION {
                     return str(row[col]).upper().strip()
             return ""
 
-    def find_epitope_matches(peptide_seq, epitope_set, min_len=${params.epitope_length_min}, max_len=${params.epitope_length_max}):
-        matches = []
-        peptide_upper = peptide_seq.upper()
-        
-        for length in range(min_len, min(max_len + 1, len(peptide_seq) + 1)):
-            for start in range(len(peptide_seq) - length + 1):
-                substring = peptide_upper[start:start + length]
-                if substring in epitope_set:
-                    matches.append({
-                        'epitope': substring,
-                        'start': start,
-                        'end': start + length
-                    })
-        
-        return matches
+    global global_epitope_set
+    global global_epitope_to_organism
+    global_epitope_set = epitope_set
+    global_epitope_to_organism = epitope_to_organism
 
-    epitope_set_fast = set(epitope_list)
-    all_annotations = []
-    all_matches = []
-    processed_count = 0
+    def process_peptide_chunk(chunk):
+        annotations = []
+        matches_list = []
+        min_len_val = ${params.epitope_length_min}
+        max_len_val = ${params.epitope_length_max}
+        zscore_thresh = ${params.zscore_threshold}
+        sample_id_val = "${sample_name}"
+        
+        for peptide_id, peptide_seq, peptide_organism, zscore, has_virus_hit in chunk:
+            peptide_upper = peptide_seq.upper()
+            seq_len = len(peptide_upper)
+            
+            local_matches = []
+            for length in range(min_len_val, min(max_len_val + 1, seq_len + 1)):
+                for start in range(seq_len - length + 1):
+                    substring = peptide_upper[start:start + length]
+                    if substring in global_epitope_set:
+                        local_matches.append({
+                            'epitope': substring,
+                            'start': start,
+                            'end': start + length
+                        })
+            
+            num_matches = len(local_matches)
+            is_sig = zscore >= zscore_thresh
+            is_nov = (num_matches == 0)
+            
+            annotations.append({
+                'sample_id': sample_id_val,
+                'peptide_id': peptide_id,
+                'peptide_sequence': peptide_seq,
+                'organism': peptide_organism,
+                'zscore': zscore,
+                'has_virus_hit': has_virus_hit,
+                'num_epitope_matches': num_matches,
+                'is_significant': is_sig,
+                'is_novel': is_nov
+            })
+            
+            for m in local_matches:
+                epitope_seq = m['epitope']
+                source_organism = global_epitope_to_organism.get(epitope_seq, 'Unknown')
+                matches_list.append({
+                    'sample_id': sample_id_val,
+                    'peptide_id': peptide_id,
+                    'peptide_sequence': peptide_seq,
+                    'peptide_organism': peptide_organism,
+                    'peptide_zscore': zscore,
+                    'peptide_has_virus_hit': has_virus_hit,
+                    'epitope_sequence': epitope_seq,
+                    'epitope_source_organism': source_organism,
+                    'start_position': m['start'],
+                    'end_position': m['end'],
+                    'is_significant': is_sig
+                })
+        return annotations, matches_list
 
     merged_df['extracted_sequence'] = merged_df.apply(extract_sequence_function, axis=1)
     valid_peptides = merged_df[merged_df['extracted_sequence'].str.len() >= ${params.epitope_length_min}]
 
-    for idx, row in valid_peptides.iterrows():
-        peptide_seq = row['extracted_sequence']
-        peptide_id = idx
+    peptide_data = []
+    col_idx = {name: i for i, name in enumerate(valid_peptides.columns)}
+    seq_idx = col_idx['extracted_sequence']
+    org_idx = col_idx.get('Organism', -1)
+    zscore_idx = col_idx.get('zscore', -1)
+    vh_idx = col_idx.get('has_virus_hit', -1)
+
+    for row in valid_peptides.itertuples():
+        peptide_id = row[0]
+        peptide_seq = row[seq_idx + 1]
+        peptide_organism = row[org_idx + 1] if org_idx != -1 else 'Unknown'
+        zscore_val = row[zscore_idx + 1] if zscore_idx != -1 else 0
+        vh_val = row[vh_idx + 1] if vh_idx != -1 else False
         
-        peptide_organism = row.get('Organism', 'Unknown')
-        
-        matches = find_epitope_matches(peptide_seq, epitope_set_fast)
-        processed_count += 1
-        
-        annotation = {
-            'sample_id': sample_id,
-            'peptide_id': peptide_id,
-            'peptide_sequence': peptide_seq,
-            'organism': peptide_organism,
-            'zscore': row.get('zscore', 0),
-            'has_virus_hit': row.get('has_virus_hit', False),
-            'num_epitope_matches': len(matches),
-            'is_significant': row.get('zscore', 0) >= ${params.zscore_threshold},
-            'is_novel': len(matches) == 0
-        }
-        all_annotations.append(annotation)
-        
-        for match in matches:
-            is_significant = row.get('zscore', 0) >= ${params.zscore_threshold}
-            epitope_seq = match['epitope']
-            source_organism = epitope_to_organism.get(epitope_seq, 'Unknown')
-            
-            match_record = {
-                'sample_id': sample_id,
-                'peptide_id': peptide_id,
-                'peptide_sequence': peptide_seq,
-                'peptide_organism': peptide_organism,
-                'peptide_zscore': row.get('zscore', 0),
-                'peptide_has_virus_hit': row.get('has_virus_hit', False),
-                'epitope_sequence': epitope_seq,
-                'epitope_source_organism': source_organism,
-                'start_position': match['start'],
-                'end_position': match['end'],
-                'is_significant': is_significant
-            }
-            all_matches.append(match_record)
+        peptide_data.append((peptide_id, peptide_seq, peptide_organism, zscore_val, vh_val))
     
+    num_workers = ${params.max_workers}
+    if num_workers < 1:
+        num_workers = 1
+        
+    chunk_size = max(1, len(peptide_data) // (num_workers * 4))
+    chunks = [peptide_data[i:i + chunk_size] for i in range(0, len(peptide_data), chunk_size)]
+    
+    all_annotations = []
+    all_matches = []
+    processed_count = len(peptide_data)
+    
+    if len(chunks) > 0:
+        import multiprocessing
+        with multiprocessing.Pool(processes=num_workers) as pool:
+            results = pool.map(process_peptide_chunk, chunks)
+            
+        for ann, mat in results:
+            all_annotations.extend(ann)
+            all_matches.extend(mat)
+            
     annotated_df = pd.DataFrame(all_annotations)
     matches_df = pd.DataFrame(all_matches)
     
@@ -418,5 +433,6 @@ workflow IEDB {
     IEDB_ANNOTATION(sample_input)
 
     emit:
-    IEDB_ANNOTATION.out.annotated.collect()
+    annotated   = IEDB_ANNOTATION.out.annotated.collect()
+    significant = IEDB_ANNOTATION.out.significant.collect()
 }
