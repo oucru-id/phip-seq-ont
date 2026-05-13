@@ -69,7 +69,7 @@ A CSV file with one row per sample
 A CSV file describing the phage display library.
 
 | Column | Description |
-|---|---|---|
+|---|---|
 | `oligo` | Oligonucleotide sequence |
 | `Organism` | Virus/organism name |
 | `Species` | Species-level grouping |
