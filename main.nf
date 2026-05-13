@@ -7,7 +7,8 @@ else
 
 log.info """\
 PhIP-Seq nanopore reads analysis pipeline
-Developed by SPHERES Lab Team adapted from phip-flow (https://github.com/matsengrp/phip-flow)
+Developed by SPHERES OUCRU-ID 
+Adapted from phip-flow (https://github.com/matsengrp/phip-flow)
 Version: ${params.version}
 """
 
@@ -21,7 +22,7 @@ include { IEDB } from './workflows/iedb_annotation.nf'
 include { VISUALIZE } from './workflows/visualization.nf'
 include { STREAMLIT } from './workflows/streamlit.nf'
 include { AGG } from './workflows/aggregate.nf'
-// include { NEUTRALIZATION_PREDICTION } from './workflows/neutralization_score.nf'
+include { NEUTRALIZATION_PREDICTION } from './workflows/neutralization_score.nf'
 
 workflow {
     ALIGN()
@@ -52,14 +53,16 @@ workflow {
         file(params.pdb_dir)
     )
     
-    /*
     NEUTRALIZATION_PREDICTION(
-        IEDB.out.map { it[0] }, 
-        IEDB.out.map { it[1] }, 
+        IEDB.out.significant,
+        IEDB.out.annotated,
         file(params.peptide_table),
         DSOUT.out[1].flatten().filter { it.toString().contains('zscore') },
-        file(params.pdb_dir)
-    ) */
+        file(params.pdb_dir),
+        file(params.neutralization_sars_db),
+        file(params.neutralization_hepb_db),
+        file(params.neutralization_pertussis_db)
+    )
 
     STREAMLIT.out.streamlit_app.view { 
         if (params.deploy_streamlit) {
