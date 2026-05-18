@@ -59,9 +59,7 @@ workflow {
         file(params.peptide_table),
         DSOUT.out[1].flatten().filter { it.toString().contains('zscore') },
         file(params.pdb_dir),
-        file(params.neutralization_sars_db),
-        file(params.neutralization_hepb_db),
-        file(params.neutralization_pertussis_db)
+        file(params.neutralization_db)
     )
 
     STREAMLIT.out.streamlit_app.view { 
