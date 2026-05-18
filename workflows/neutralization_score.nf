@@ -10,9 +10,7 @@ process NEUTRALIZATION_SCORE {
     path peptide_table
     path zscore_files
     path pdb_dir
-    path neutralization_sars_db
-    path neutralization_hepb_db
-    path neutralization_pertussis_db
+    path neutralization_db
 
     output:
     path "neutralization_scores_per_sample.csv",   emit: scores
@@ -120,12 +118,9 @@ process NEUTRALIZATION_SCORE {
             print(f"  Warning: error reading {filepath}: {e}")
         return seqs
 
-    print("Loading neutralization databases...")
-    neut_sars    = load_neutralization_db("${neutralization_sars_db}")
-    neut_hepb    = load_neutralization_db("${neutralization_hepb_db}")
-    neut_pertuss = load_neutralization_db("${neutralization_pertussis_db}")
-    neut_db = neut_sars | neut_hepb | neut_pertuss
-    print(f"  Combined neutralization DB: {len(neut_db)} entries")
+    print("Loading neutralization database...")
+    neut_db = load_neutralization_db("${neutralization_db}")
+    print(f"  Neutralization DB: {len(neut_db)} entries")
 
     MAX_SASA = {
         'A': 129, 'R': 274, 'N': 195, 'D': 193, 'C': 167,
@@ -611,9 +606,7 @@ workflow NEUTRALIZATION_PREDICTION {
     peptide_table
     zscore_files
     pdb_dir
-    neutralization_sars_db
-    neutralization_hepb_db
-    neutralization_pertussis_db
+    neutralization_db
 
     main:
     NEUTRALIZATION_SCORE(
@@ -622,9 +615,7 @@ workflow NEUTRALIZATION_PREDICTION {
         peptide_table,
         zscore_files,
         pdb_dir,
-        neutralization_sars_db,
-        neutralization_hepb_db,
-        neutralization_pertussis_db
+        neutralization_db
     )
 
     emit:
