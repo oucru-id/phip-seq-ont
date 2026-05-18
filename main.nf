@@ -28,11 +28,15 @@ workflow {
     ALIGN()
     STATS(ALIGN.out)
     DSOUT(STATS.out)
-    FHIR(DSOUT.out[1]) 
     FDR(DSOUT.out[1]) 
     VIRUSSCORE(
         FDR.out,
         params.oligo_metadata
+    )
+    FHIR(
+        DSOUT.out[1],
+        file(params.peptide_table),
+        VIRUSSCORE.out
     )
     
     IEDB(
