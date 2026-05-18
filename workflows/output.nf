@@ -45,7 +45,7 @@ workflow DSOUT {
     dump_tall_csv(dataset)
 
     emit:
-        dump_binary.out
-        dump_wide_csv.out
-        dump_tall_csv.out
+    binary = dump_binary.out
+    wide   = dump_wide_csv.out
+    tall   = dump_tall_csv.out
 }
