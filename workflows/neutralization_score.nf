@@ -539,7 +539,6 @@ process NEUTRALIZATION_SCORE {
                 'peptides_in_clusters':    cluster_count,
                 'neutralization_db_size':  len(neut_db),
                 'score_distribution':      score_stats,
-                'score_percentiles':       score_pcts,
                 'weights': {
                     'conservation':      ${params.conservation_weight},
                     'phip_signal':       ${params.phip_signal_weight},
@@ -548,20 +547,6 @@ process NEUTRALIZATION_SCORE {
                     'epitope_coverage':  ${params.epitope_coverage_weight},
                     'bfactor':           ${params.bfactor_weight},
                 },
-                'algorithm_version': '2.0',
-                'improvements': [
-                    'bfactor_scaling_fixed',
-                    'neut_db_score_logic_corrected',
-                    'short_peptide_db_lookup_fixed',
-                    'context_as_multiplicative_factor',
-                    'zscore_empty_file_error_raised',
-                    'sasa_hard_filter_buried_lt_0.05',
-                    'n_glycosylation_penalty',
-                    'gravy_hydropathy_multiplier',
-                    'flexibility_loop_bonus',
-                    'shannon_entropy_iedb_diversity',
-                    'score_distribution_in_output',
-                ],
             }, f, indent=2)
 
         with open('neutralization_summary.txt', 'w') as f:
