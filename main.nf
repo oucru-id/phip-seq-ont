@@ -1,17 +1,5 @@
 nextflow.enable.dsl = 2
 
-if (params.sample_table != "$baseDir/data/VIR3-example/sample_table_with_beads_no_lib.csv")
-    params.reads_prefix = "$launchDir"
-else
-    params.reads_prefix = "$baseDir"
-
-log.info """\
-PhIP-Seq nanopore reads analysis pipeline
-Developed by SPHERES OUCRU-ID 
-Adapted from phip-flow (https://github.com/matsengrp/phip-flow)
-Version: ${params.version}
-"""
-
 include { ALIGN } from './workflows/alignment.nf'
 include { STATS } from './workflows/statistics.nf'
 include { DSOUT } from './workflows/output.nf'
@@ -25,6 +13,19 @@ include { AGG } from './workflows/aggregate.nf'
 include { NEUTRALIZATION_PREDICTION } from './workflows/neutralization_score.nf'
 
 workflow {
+
+if (params.sample_table != "$baseDir/data/VIR3-example/sample_table_with_beads_no_lib.csv")
+    params.reads_prefix = "$launchDir"
+else
+    params.reads_prefix = "$baseDir"
+
+    log.info """\
+PhIP-Seq nanopore reads analysis pipeline
+Developed by SPHERES OUCRU-ID 
+Adapted from phip-flow (https://github.com/matsengrp/phip-flow)
+Version: ${params.version}
+"""
+
     ALIGN()
     STATS(ALIGN.out)
     DSOUT(STATS.out)
