@@ -45,6 +45,7 @@ process publish_rds {
     tuple path(phip_data), path(csvs), path(rds_data), val(method)
     output:
     path rds_data
+    script:
     """
     echo publishing $rds_data 
     """
